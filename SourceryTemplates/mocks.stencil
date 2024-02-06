@@ -1,0 +1,43 @@
+{% for argument in argument.imports %}
+import {{ argument }}
+{% endfor %}
+{% if argument.app %}@testable import {{ argument.app }}{% endif %}
+
+// swiftlint:disable large_tuple
+{% for type in types.protocols %}
+{% if type.annotations.autoMockable %}
+
+// MARK: - {{ type.name}}Mock
+final class {{ type.name }}Mock: {{ type.name }} {
+{% for variable in type.allVariables|!annotated:"noMock" %}
+
+    var {{ variable.name }}SetCount = 0
+    var set{{ variable.name|upperFirstLetter }}Callback: (() throws -> Void)?
+    var {{ variable.name }}: {{ variable.typeName }}{% if variable|annotated:"defaultMockValue" %} = {{ variable.annotations.defaultMockValue }}{% elif variable.isOptional %} = nil{% elif variable.isArray %} = []{% elif variable.isDictionary %} = [:]{% else %} // You must annotate mocked variables that are not optional, arrays, or dictionaries, using a comment: //sourcery: defaultMockValue = <value>{% endif %} {
+        didSet {
+            {{ variable.name }}SetCount += 1
+            try! set{{ variable.name|upperFirstLetter }}Callback?()
+        }
+    }
+{% endfor %}
+{% for method in type.allMethods|!annotated:"noMock" %}
+
+    var {{ method.callName }}CallCount = 0
+    var {{ method.callName }}Callback: (() throws -> Void)?
+{% if method.throws %}    var {{ method.callName }}ShouldThrow: Error?{% endif %}
+{% if method.parameters.count == 1 %}    var {{ method.callName }}Received{% for param in method.parameters %}{{ param.name|upperFirstLetter }}: {{ param.typeName.unwrappedTypeName }}?{% endfor %}
+{% else %}{% if not method.parameters.count == 0 %}    var {{ method.callName }}ReceivedArguments: ({% for param in method.parameters %}{{ param.name }}: {% if param.typeAttributes.escaping %}{{ param.unwrappedTypeName }}{% else %}{{ param.typeName }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %})?{% endif %}
+{% endif %}
+{% if not method.returnTypeName.isVoid %}    var {{ method.callName }}ReturnValue: {{ method.returnTypeName }}{% if method.annotations.DefaultReturnValue %} = {{ method.annotations.DefaultReturnValue }}{% else %}{% if not method.isOptionalReturnType %}!{% endif %}{% endif %}{% endif %}
+    func {{ method.shortName }}({% for param in method.parameters %}{% if param.argumentLabel == nil %}_{% else %}{{ param.argumentLabel }}{% endif %}{% if not param.argumentLabel == param.name %} {{ param.name }}{% endif %}: {{ param.typeName }}{% if not forloop.last %}, {% endif %}{% endfor %}){% if method.throws %} throws{% endif %}{% if not method.returnTypeName.isVoid %} -> {{ method.returnTypeName }}{% endif %} {
+        {{ method.callName }}CallCount += 1
+{%if method.parameters.count == 1 %}        {{ method.callName }}Received{% for param in method.parameters %}{{ param.name|upperFirstLetter }} = {{ param.name }}{% endfor %}{% else %}{% if not method.parameters.count == 0 %}        {{ method.callName }}ReceivedArguments = ({% for param in method.parameters %}{{ param.name }}: {{ param.name }}{% if not forloop.last%}, {% endif %}{% endfor %}){% endif %}{% if not method.returnTypeName.isVoid %}{% endif %}{% endif %}
+{% if method.throws %}        if let {{ method.callName }}ShouldThrow = {{ method.callName }}ShouldThrow { throw {{ method.callName }}ShouldThrow }{% endif %}
+        try! {{ method.callName }}Callback?()
+{% if not method.returnTypeName.isVoid %}
+        return {{ method.callName }}ReturnValue{% endif %}
+    }
+{% endfor %}
+}
+{% endif %}
+{% endfor %}
